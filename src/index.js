@@ -3,17 +3,10 @@ import { buildPatternSet } from "./patterns.js"
 import { PlaceholderSession } from "./session.js"
 import { redactText } from "./engine.js"
 import { redactDeep, restoreDeep } from "./deep.js"
-import { restoreText } from "./restore.js"
+import { restoreResponseText, restoreText } from "./restore.js"
 
-/**
- * OpenCode 插件入口：
- * - `experimental.chat.messages.transform`：LLM 请求前对全部消息做脱敏（保证 provider 永远看不到真实值）
- * - `tool.execute.before`：工具执行前还原占位符（保证本机执行拿到真实值）
- *
- * 说明：为了降低误用风险，本插件在“找不到配置文件或 enabled=false”时为 no-op。
- */
-export const VibeGuardPrivacy = async (ctx) => {
-  const config = await loadConfig(ctx.directory)
+async function createState(directory) {
+  const config = await loadConfig(directory)
   const debug = Boolean(process.env.OPENCODE_VIBEGUARD_DEBUG) || Boolean(config.debug)
 
   if (debug) {
@@ -21,7 +14,7 @@ export const VibeGuardPrivacy = async (ctx) => {
     console.log(`[opencode-vibeguard] 配置：${from} enabled=${config.enabled}`)
   }
 
-  if (!config.enabled) return {}
+  if (!config.enabled) return null
 
   const patterns = buildPatternSet(config.patterns)
   const sessions = new Map()
@@ -39,6 +32,83 @@ export const VibeGuardPrivacy = async (ctx) => {
     sessions.set(key, created)
     return created
   }
+
+  return { debug, getSession, patterns }
+}
+
+function redactValue(value, patterns, session) {
+  if (typeof value === "string") return redactText(value, patterns, session).text
+  if (value && typeof value === "object") redactDeep(value, patterns, session)
+  return value
+}
+
+function redactV2Request(event, state, session) {
+  let changedTextParts = 0
+  const redactProperty = (owner, key) => {
+    if (typeof owner?.[key] !== "string" || !owner[key]) return
+    const before = owner[key]
+    owner[key] = redactText(before, state.patterns, session).text
+    if (owner[key] !== before) changedTextParts++
+  }
+
+  for (const part of Array.isArray(event.system) ? event.system : []) {
+    if (part?.type !== "text") continue
+    redactProperty(part, "text")
+    redactDeep(part.metadata, state.patterns, session)
+  }
+
+  for (const message of Array.isArray(event.messages) ? event.messages : []) {
+    redactDeep(message?.metadata, state.patterns, session)
+    redactDeep(message?.providerMetadata, state.patterns, session)
+    redactDeep(message?.native, state.patterns, session)
+    for (const part of Array.isArray(message?.content) ? message.content : []) {
+      if (!part || typeof part !== "object") continue
+      redactDeep(part.metadata, state.patterns, session)
+      redactDeep(part.providerMetadata, state.patterns, session)
+      if (part.type === "text" || part.type === "reasoning" || part.type === "compaction") {
+        redactProperty(part, "text")
+        continue
+      }
+      if (part.type === "tool-call") {
+        part.input = redactValue(part.input, state.patterns, session)
+        continue
+      }
+      if (part.type === "media") {
+        redactProperty(part, "filename")
+        if (part.media?.source?.type === "url") redactProperty(part.media.source, "url")
+        continue
+      }
+      if (part.type !== "tool-result" || !part.result || typeof part.result !== "object") continue
+      if (part.result.type === "content" && Array.isArray(part.result.value)) {
+        for (const content of part.result.value) {
+          if (content?.type === "text") redactProperty(content, "text")
+          if (content?.type === "file") {
+            redactProperty(content, "uri")
+            redactProperty(content, "name")
+          }
+        }
+        continue
+      }
+      part.result.value = redactValue(part.result.value, state.patterns, session)
+    }
+  }
+
+  if (state.debug && changedTextParts > 0) {
+    console.log(`[opencode-vibeguard] 本次请求前脱敏：已修改 ${changedTextParts} 处文本片段`)
+  }
+}
+
+/**
+ * OpenCode 插件入口：
+ * - `experimental.chat.messages.transform`：LLM 请求前对全部消息做脱敏（保证 provider 永远看不到真实值）
+ * - `tool.execute.before`：工具执行前还原占位符（保证本机执行拿到真实值）
+ *
+ * 说明：为了降低误用风险，本插件在“找不到配置文件或 enabled=false”时为 no-op。
+ */
+export const VibeGuardPrivacy = async (ctx = {}) => {
+  const state = await createState(ctx.directory)
+  if (!state) return {}
+  const { debug, getSession, patterns } = state
 
   return {
     "experimental.chat.messages.transform": async (_input, output) => {
@@ -142,3 +212,65 @@ export const VibeGuardPrivacy = async (ctx) => {
     },
   }
 }
+
+/**
+ * OpenCode V2 插件定义，同时通过 `server` 保留 V1 对象入口。
+ */
+const plugin = {
+  id: "opencode-vibeguard",
+
+  async setup(ctx) {
+    const directory = ctx?.location?.directory ?? ctx?.directory
+    const state = await createState(directory)
+    if (!state) return
+
+    const redactRequest = (event) => {
+      const session = state.getSession(event?.sessionID)
+      if (!session) return
+      session.cleanup()
+      redactV2Request(event, state, session)
+    }
+
+    for (const hook of ["context", "compaction", "generate", "title"]) {
+      await ctx.session.hook(hook, redactRequest)
+    }
+
+    await ctx.session.hook("http.response", async (event) => {
+      const session = state.getSession(event?.sessionID)
+      if (!session || !(event?.response instanceof Response)) return
+      session.cleanup()
+
+      try {
+        const response = event.response
+        const before = await response.clone().text()
+        const contentType = response.headers.get("content-type") ?? ""
+        const after = restoreResponseText(before, contentType, session)
+        if (after === before) return
+
+        const headers = new Headers(response.headers)
+        headers.delete("content-length")
+        headers.delete("content-encoding")
+        event.response = new Response(after, {
+          status: response.status,
+          statusText: response.statusText,
+          headers,
+        })
+        if (state.debug) console.log("[opencode-vibeguard] 本次响应完成后还原：已修改 1 处文本片段")
+      } catch {
+        console.error("[opencode-vibeguard] 响应还原失败，已保留原始响应")
+      }
+    })
+
+    await ctx.tool.hook("execute.before", (event) => {
+      const session = state.getSession(event?.sessionID)
+      if (!session) return
+      session.cleanup()
+      if (typeof event.input === "string") event.input = restoreText(event.input, session)
+      else restoreDeep(event.input, session)
+    })
+  },
+
+  server: VibeGuardPrivacy,
+}
+
+export default plugin

@@ -57,7 +57,8 @@ function normalizeConfig(raw) {
 export function getConfigCandidates(directory) {
   const dir = String(directory ?? process.cwd())
   const home = os.homedir()
-  const globalConfig = path.join(home, ".config", "opencode", "vibeguard.config.json")
+  const configHome = process.env.XDG_CONFIG_HOME || path.join(home, ".config")
+  const globalConfig = path.join(configHome, "opencode", "vibeguard.config.json")
   const projectRoot = path.join(dir, "vibeguard.config.json")
   const projectLocal = path.join(dir, ".opencode", "vibeguard.config.json")
 

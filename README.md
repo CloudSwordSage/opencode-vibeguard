@@ -2,7 +2,7 @@ English | [中文](README-zh.md)
 
 [![npm](https://img.shields.io/npm/v/opencode-vibeguard)](https://www.npmjs.com/package/opencode-vibeguard)
 [![downloads](https://img.shields.io/npm/dm/opencode-vibeguard)](https://www.npmjs.com/package/opencode-vibeguard)
-[![license](https://img.shields.io/github/license/inkdust2021/opencode-vibeguard)](LICENSE)
+[![license](https://img.shields.io/github/license/CloudSwordSage/opencode-vibeguard)](LICENSE)
 [![node](https://img.shields.io/node/v/opencode-vibeguard)](https://www.npmjs.com/package/opencode-vibeguard)
 
 # opencode-vibeguard
@@ -25,21 +25,39 @@ Placeholder format (aligned with VibeGuard):
 - Shape: `__VG_<CATEGORY>_<hash12>__` or `__VG_<CATEGORY>_<hash12>_<N>__`
 - `hash12` is the first 12 hex chars of `HMAC-SHA256(session-random secret, original)`, stable within a session and irreversible to the provider
 
-## Install / Use (local dev)
+## Install / Use (local dev, OpenCode V2)
 
 1. Put this plugin directory in your project (e.g. `./opencode-vibeguard/`).
-2. Load it in your OpenCode config:
+2. Install dependencies and build the single-file plugin:
+
+```bash
+cd opencode-vibeguard
+npm install
+npm run build
+```
+
+3. Load it in your OpenCode config:
 
 ```jsonc
 {
   "$schema": "https://opencode.ai/config.json",
-  "plugin": ["file://./opencode-vibeguard/src/index.js"]
+  "plugins": ["./opencode-vibeguard"]
 }
 ```
 
-3. Put `vibeguard.config.json` in your project root (copy from `vibeguard.config.json.example`).
+4. Put `vibeguard.config.json` in your project root (copy from `vibeguard.config.json.example`).
 
 > Safety note: to avoid unexpected modifications, the plugin becomes a no-op if the config file is missing or `enabled=false`.
+
+### Activate by copying the build output (OpenCode V2)
+
+Once built, copy `dist/opencode-vibeguard.js` directly into your OpenCode plugin directory to enable it globally, with no project config entry:
+
+```text
+~/.config/opencode/plugins/opencode-vibeguard.js
+```
+
+OpenCode discovers `.js` files under `~/.config/opencode/plugins/` automatically. Put `vibeguard.config.json` in the project you run OpenCode from, or in `~/.config/opencode/vibeguard.config.json`.
 
 ## Install / Use (npm)
 
@@ -48,7 +66,7 @@ Reference the package name in `opencode.json` (OpenCode will auto-install it on 
 ```jsonc
 {
   "$schema": "https://opencode.ai/config.json",
-  "plugin": ["opencode-vibeguard"]
+  "plugins": ["opencode-vibeguard"]
 }
 ```
 
@@ -57,7 +75,7 @@ You can also pin a version:
 ```jsonc
 {
   "$schema": "https://opencode.ai/config.json",
-  "plugin": ["opencode-vibeguard@0.1.0"]
+  "plugins": ["opencode-vibeguard@0.1.0"]
 }
 ```
 
@@ -69,12 +87,12 @@ npm i -D opencode-vibeguard
 # or: bun add -d opencode-vibeguard
 ```
 
-If you prefer to load from your local `node_modules`, use a `file://` plugin path:
+If you prefer to load from your local `node_modules`, use the package directory:
 
 ```jsonc
 {
   "$schema": "https://opencode.ai/config.json",
-  "plugin": ["file://./node_modules/opencode-vibeguard/src/index.js"]
+  "plugins": ["./node_modules/opencode-vibeguard"]
 }
 ```
 
@@ -85,7 +103,7 @@ Config lookup order (first match wins):
 1. Path specified by env var `OPENCODE_VIBEGUARD_CONFIG`
 2. Project root: `./vibeguard.config.json`
 3. Project `.opencode` dir: `./.opencode/vibeguard.config.json`
-4. Global dir: `~/.config/opencode/vibeguard.config.json`
+4. Global dir: `$XDG_CONFIG_HOME/opencode/vibeguard.config.json`, or `~/.config/opencode/vibeguard.config.json` when `XDG_CONFIG_HOME` is unset
 
 See `vibeguard.config.json.example` for an example.
 
@@ -95,6 +113,14 @@ See `vibeguard.config.json.example` for an example.
 cd opencode-vibeguard
 npm test
 ```
+
+## Build
+
+```bash
+npm run build
+```
+
+The output is the standalone ESM plugin `dist/opencode-vibeguard.js`. You can copy that single file into `~/.config/opencode/plugins/` to enable the plugin without any OpenCode config change.
 
 ## Debug
 
@@ -112,4 +138,6 @@ Or set in `vibeguard.config.json`:
 
 ## Known limitations
 
-- During streaming (`text-delta`) the placeholder may briefly appear; it will be restored at `text-end`.
+- Restoring placeholders through the OpenCode V2 `http.response` hook buffers the provider response, so restored output is emitted after the response completes instead of token by token.
+- A placeholder split across multiple independent SSE delta payloads cannot be restored because the wire framing interrupts the placeholder text.
+- Experimental WebSocket-backed provider traffic does not pass through `http.response` and is not currently restored.

@@ -2,7 +2,7 @@
 
 [![npm](https://img.shields.io/npm/v/opencode-vibeguard)](https://www.npmjs.com/package/opencode-vibeguard)
 [![downloads](https://img.shields.io/npm/dm/opencode-vibeguard)](https://www.npmjs.com/package/opencode-vibeguard)
-[![license](https://img.shields.io/github/license/inkdust2021/opencode-vibeguard)](LICENSE)
+[![license](https://img.shields.io/github/license/CloudSwordSage/opencode-vibeguard)](LICENSE)
 [![node](https://img.shields.io/node/v/opencode-vibeguard)](https://www.npmjs.com/package/opencode-vibeguard)
 
 # opencode-vibeguard
@@ -25,21 +25,39 @@
 - 形如：`__VG_<CATEGORY>_<hash12>__` 或 `__VG_<CATEGORY>_<hash12>_<N>__`
 - `hash12` 为 `HMAC-SHA256(会话内随机 secret, 原文)` 的 12 位十六进制小写截断（同一会话内稳定、对上游不可逆）
 
-## 安装/使用（本地开发）
+## 安装/使用（本地开发，OpenCode V2）
 
 1. 把本插件目录放到你的项目里（例如 `./opencode-vibeguard/`）。
-2. 在你的 OpenCode 配置里加载插件：
+2. 安装依赖并构建单文件插件：
+
+```bash
+cd opencode-vibeguard
+npm install
+npm run build
+```
+
+3. 在你的 OpenCode 配置里加载插件：
 
 ```jsonc
 {
   "$schema": "https://opencode.ai/config.json",
-  "plugin": ["file://./opencode-vibeguard/src/index.js"]
+  "plugins": ["./opencode-vibeguard"]
 }
 ```
 
-3. 在项目根目录放置 `vibeguard.config.json`（可从 `vibeguard.config.json.example` 复制）。
+4. 在项目根目录放置 `vibeguard.config.json`（可从 `vibeguard.config.json.example` 复制）。
 
 > 注意：为了避免“无配置默认就改写内容”的风险，如果找不到配置文件或 `enabled=false`，插件将变为 no-op。
+
+### 复制构建产物启用（OpenCode V2）
+
+构建完成后，直接把 `dist/opencode-vibeguard.js` 复制到 OpenCode 插件目录即可全局启用，无需在项目配置里声明：
+
+```text
+~/.config/opencode/plugins/opencode-vibeguard.js
+```
+
+OpenCode 会自动发现 `~/.config/opencode/plugins/` 下的 `.js` 文件。`vibeguard.config.json` 放在你运行 OpenCode 的项目根目录，或放到 `~/.config/opencode/vibeguard.config.json`。
 
 ## 安装/使用（npm）
 
@@ -48,7 +66,7 @@
 ```jsonc
 {
   "$schema": "https://opencode.ai/config.json",
-  "plugin": ["opencode-vibeguard"]
+  "plugins": ["opencode-vibeguard"]
 }
 ```
 
@@ -57,7 +75,7 @@
 ```jsonc
 {
   "$schema": "https://opencode.ai/config.json",
-  "plugin": ["opencode-vibeguard@0.1.0"]
+  "plugins": ["opencode-vibeguard@0.1.0"]
 }
 ```
 
@@ -69,12 +87,12 @@ npm i -D opencode-vibeguard
 # 或：bun add -d opencode-vibeguard
 ```
 
-如果你希望直接从项目本地的 `node_modules` 加载，可用 `file://` 路径：
+如果你希望直接从项目本地的 `node_modules` 加载，可使用包目录：
 
 ```jsonc
 {
   "$schema": "https://opencode.ai/config.json",
-  "plugin": ["file://./node_modules/opencode-vibeguard/src/index.js"]
+  "plugins": ["./node_modules/opencode-vibeguard"]
 }
 ```
 
@@ -85,7 +103,7 @@ npm i -D opencode-vibeguard
 1. 环境变量 `OPENCODE_VIBEGUARD_CONFIG` 指定的路径
 2. 当前项目根目录：`./vibeguard.config.json`
 3. 项目 `.opencode` 目录：`./.opencode/vibeguard.config.json`
-4. 全局配置目录：`~/.config/opencode/vibeguard.config.json`
+4. 全局配置目录：`$XDG_CONFIG_HOME/opencode/vibeguard.config.json`；未设置 `XDG_CONFIG_HOME` 时使用 `~/.config/opencode/vibeguard.config.json`
 
 配置结构示例见 `vibeguard.config.json.example`。
 
@@ -95,6 +113,14 @@ npm i -D opencode-vibeguard
 cd opencode-vibeguard
 npm test
 ```
+
+## 构建
+
+```bash
+npm run build
+```
+
+构建产物为独立 ESM 插件 `dist/opencode-vibeguard.js`。可把该单文件复制到 `~/.config/opencode/plugins/`，无需修改 OpenCode 配置即可启用。
 
 ## 调试
 
@@ -112,4 +138,6 @@ OPENCODE_VIBEGUARD_DEBUG=1 opencode .
 
 ## 已知限制
 
-- 流式输出阶段（`text-delta`）无法逐段还原，占位符可能会短暂出现在界面中；在 `text-end` 时会被一次性还原。
+- OpenCode V2 的 `http.response` hook 需要缓冲完整 provider 响应后再还原，因此不会逐 token 输出还原后的内容。
+- 如果一个占位符被拆分到多个独立 SSE delta payload，wire framing 会打断占位符文本，因而无法还原。
+- 实验性的 WebSocket provider 流量不会经过 `http.response`，目前不会被还原。

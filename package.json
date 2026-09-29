@@ -3,16 +3,17 @@
   "version": "0.1.0",
   "description": "OpenCode 插件：参考 VibeGuard 的占位符格式（__VG_...__）在发送给 LLM 前脱敏、在响应完成后自动还原、在工具执行前还原参数",
   "type": "module",
-  "main": "./src/index.js",
-  "exports": "./src/index.js",
+  "main": "./dist/opencode-vibeguard.js",
+  "exports": "./dist/opencode-vibeguard.js",
   "files": [
-    "src",
+    "dist",
     "README-zh.md",
     "vibeguard.config.json.example"
   ],
   "scripts": {
     "test": "node --test",
-    "prepack": "npm test"
+    "build": "esbuild src/index.js --bundle --platform=node --format=esm --outfile=dist/opencode-vibeguard.js",
+    "prepack": "npm test && npm run build"
   },
   "keywords": [
     "opencode",
@@ -25,11 +26,14 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/inkdust2021/opencode-vibeguard.git"
+    "url": "git+https://github.com/CloudSwordSage/opencode-vibeguard.git"
   },
   "bugs": {
-    "url": "https://github.com/inkdust2021/opencode-vibeguard/issues"
+    "url": "https://github.com/CloudSwordSage/opencode-vibeguard/issues"
   },
-  "homepage": "https://github.com/inkdust2021/opencode-vibeguard#readme",
-  "license": "MIT"
+  "homepage": "https://github.com/CloudSwordSage/opencode-vibeguard#readme",
+  "license": "MIT",
+  "devDependencies": {
+    "esbuild": "^0.28.2"
+  }
 }

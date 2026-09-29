@@ -1,4 +1,5 @@
 node_modules/
+dist/
 .DS_Store
 *.log
 *.tgz
@@ -9,6 +10,5 @@ vibeguard.config.json
 .env.*
 .opencode/
 
-# 测试与本地临时文件（按需保留在本地，不提交）
-test/
+# 测试产物
 coverage/
